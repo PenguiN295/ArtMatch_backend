@@ -1,10 +1,19 @@
+import numpy as np
 import torch
 from transformers import CLIPProcessor, CLIPModel
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, Response, UploadFile, File, Form, HTTPException
 from PIL import Image
 import chromadb
 import io
 import uvicorn
+import insightface
+from insightface.app import FaceAnalysis
+import cv2
+import os
+import onnxruntime as ort
+
+
+
 
 # --- 1. Global Setup and Model Loading (Runs ONCE at startup) ---
 
@@ -25,6 +34,12 @@ COLLECTION = chroma_client.get_or_create_collection(name="persona_matches")
 print(f" ChromaDB initialized. Collection size: {COLLECTION.count()}")
 
 app = FastAPI()
+
+
+app_face = FaceAnalysis(name='buffalo_l')
+app_face.prepare(ctx_id=0, det_size=(640, 640))
+
+swapper = insightface.model_zoo.get_model('inswapper_128.onnx', download=False, set_params=None)
 
 # --- 2. Core Vectorization Function (GPU Work) ---
 
@@ -115,11 +130,52 @@ async def find_match(file: UploadFile = File(...)):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Match processing failed: {e}")
+    
 
-# --- 4. Running the Service ---
+
+@app.post("/swap-face")
+async def swap_face(
+    target_path: str = Form(...),
+    file: UploadFile = File(...)
+):
+    # 1. Load User Photo (Source)
+    user_bytes = await file.read()
+    nparr = np.frombuffer(user_bytes, np.uint8)
+    user_img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    
+    # 2. Get User Face
+    user_faces = app_face.get(user_img)
+    if not user_faces:
+        raise HTTPException(status_code=400, detail="No face detected in your photo.")
+    source_face = user_faces[0] # Take the largest/first face
+
+    # 3. Load Target Art (From MatchID)
+    target_img = cv2.imread(target_path)
+
+    # 4. Get Target Face (The face in the painting)
+    target_faces = app_face.get(target_img)
+    if not target_faces:
+        raise HTTPException(status_code=400, detail="No face detected in the art piece.")
+    target_face = target_faces[0]
+
+    # 5. Perform the Swap
+    # Result is a standard OpenCV image (numpy array)
+    result_img = swapper.get(target_img, target_face, source_face, paste_back=True)
+
+    # 6. Return Image
+    _, encoded_img = cv2.imencode('.jpg', result_img)
+    return Response(content=encoded_img.tobytes(), media_type="image/jpeg")
+
+@app.post("/check-face")
+async def check_face(file: UploadFile = File(...)):
+    img_bytes = await file.read()
+    img = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR)
+    faces = app_face.get(img)
+    if(len(faces)>0):
+        return True
+    return False
+
 
 if __name__ == "__main__":
-    # Ensure to run this from the terminal: 
-    # uvicorn ai_service:app --host 0.0.0.0 --port 8000
     # For local testing, use:
     uvicorn.run(app, host="127.0.0.1", port=8000)

@@ -129,14 +129,20 @@ public class AppController : ControllerBase
         {
             return BadRequest(new { Message = "No photo uploaded." });
         }
-        
-        using var stream = photo.OpenReadStream();
-        var result = await _aiMicroservice.FindMatchAsync(stream, photo.FileName);
-
+        byte[] photoBytes;
+        using (var ms = new MemoryStream())
+        {
+            await photo.CopyToAsync(ms);
+            photoBytes = ms.ToArray();
+        }
+        using var ms1 = new MemoryStream(photoBytes);
+        var result = await _aiMicroservice.FindMatchAsync(ms1, photo.FileName);
+        using var ms2 = new MemoryStream(photoBytes);
+        bool canSwap = await _aiMicroservice.CheckFaceExistsAsync(ms2);
 
         var matchImageUrl = Url.Action(
-            nameof(GetMatchedImage), 
-            "App",                 
+            nameof(GetMatchedImage),
+            "App",
             new { matchId = result.MatchId },
             Request.Scheme
         );
@@ -148,7 +154,8 @@ public class AppController : ControllerBase
             Category = result.metadata.style,
             Name = result.metadata.name,
             SimilarityDistance = result.SimilarityDistance,
-            matched_photo = matchImageUrl
+            matched_photo = matchImageUrl,
+            canSwap = canSwap
         });
     }
 
@@ -164,5 +171,35 @@ public class AppController : ControllerBase
         var imageStream = System.IO.File.OpenRead(imagePath);
 
         return File(imageStream, "image/jpeg");
+    }
+
+
+
+    [HttpPost("perform-swap")]
+    public async Task<IActionResult> PerformSwap([FromBody] SwapRequest request)
+    {
+
+        var userFile = CreateFormFileFromBase64(request.UserPhotoBase64);
+        using var userStream = userFile.OpenReadStream();
+
+        var artPath = _imageStorageService.GetImagePathByMatchId(request.MatchId, request.Style);
+        Console.WriteLine("Art Path: " + artPath);
+        if (string.IsNullOrEmpty(artPath))
+        {
+            return BadRequest(new { Message = "Art image not found for the provided Match ID." });
+        }
+
+
+        var swappedImageBytes = await _aiMicroservice.SwapFaceAsync(userStream, artPath);
+
+        if (swappedImageBytes == null || swappedImageBytes.Length == 0)
+        {
+            return BadRequest(new { Message = "Failed to perform face swap." });
+        }
+        string base64Image = Convert.ToBase64String(swappedImageBytes);
+        return Ok(new
+        {
+            SwappedPhotoBase64 = base64Image
+        });
     }
 }

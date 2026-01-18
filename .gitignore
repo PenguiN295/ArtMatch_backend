@@ -53,5 +53,6 @@ CodeCoverage/
 TestResult.xml
 nunit-*.xml
 
-.sqlite3
+*.sqlite3
 clip_vector_data
+*.onnx
