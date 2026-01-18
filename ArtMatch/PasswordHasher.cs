@@ -2,14 +2,15 @@ using System;
 using System.Security.Cryptography;
 using System.Text;
 using Konscious.Security.Cryptography;
+using ArtMatch.Interfaces;
+using Microsoft.AspNetCore.Identity;
 
 public interface IPasswordHasher
 {
     string HashPassword(string password);
     bool VerifyPassword(string password, string storedHash);
 }
-
-public class PasswordHasher : IPasswordHasher
+public class PasswordHasher :   IPasswordHasher
 {
     // 128-bit salt
     private const int SaltSize = 16;

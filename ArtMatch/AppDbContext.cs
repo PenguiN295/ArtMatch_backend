@@ -10,4 +10,5 @@ public class AppDbContext : DbContext
     }
 
     public DbSet<Entities.User> Users { get; set; }
+    public DbSet<Entities.Photo> Photos { get; set; }
 }

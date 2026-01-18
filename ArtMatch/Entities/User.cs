@@ -7,6 +7,5 @@ public class User
     public string? Password { get; set; }
 
     public DateTime CreatedAt { get; set; }
-
-
+    public List<Photo>? Photos { get; set; } 
 }
