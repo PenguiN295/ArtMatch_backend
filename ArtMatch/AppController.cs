@@ -107,6 +107,22 @@ public class AppController : ControllerBase
         .ToList();
         return Ok(photos);
     }
+    [HttpGet("/getPhoto/{userId}/{photoId}")]
+    public IActionResult GetPhoto(Guid photoId, Guid userId)
+    {
+        var user = _dbContext.Users.FirstOrDefault(u => u.Id == userId);
+        if (user == null)
+        {
+            return BadRequest(new { Message = "User not found." });
+        }
+        var photo = _dbContext.Photos.FirstOrDefault(p => p.Id == photoId && p.UserId == userId);
+        if (photo == null)
+        {
+            return BadRequest(new { Message = "Photo not found." });
+        }
+        return Ok(photo);
+    }
+
     [HttpDelete("/delete-photo/{photoId}")]
     public IActionResult DeletePhoto(Guid photoId)
     {
@@ -138,7 +154,11 @@ public class AppController : ControllerBase
         using var ms1 = new MemoryStream(photoBytes);
         var result = await _aiMicroservice.FindMatchAsync(ms1, photo.FileName);
         using var ms2 = new MemoryStream(photoBytes);
-        bool canSwap = await _aiMicroservice.CheckFaceExistsAsync(ms2);
+        bool canSwapSource = await _aiMicroservice.CheckFaceExistsAsync(ms2);
+
+        var result2 = _imageStorageService.GetImagePathByMatchId(result.MatchId, result.metadata.style);
+        bool canSwapTarget = await _aiMicroservice.CheckFaceExistsAsync(System.IO.File.OpenRead(result2));
+
 
         var matchImageUrl = Url.Action(
             nameof(GetMatchedImage),
@@ -155,7 +175,7 @@ public class AppController : ControllerBase
             Name = result.metadata.name,
             SimilarityDistance = result.SimilarityDistance,
             matched_photo = matchImageUrl,
-            canSwap = canSwap
+            canSwap = canSwapSource && canSwapTarget
         });
     }
 
